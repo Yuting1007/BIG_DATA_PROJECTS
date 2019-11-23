@@ -1,0 +1,234 @@
+---
+title: "abalone"
+author: "Yuting"
+date: "2019年11月23日"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Proposal
+# 1. Inspect correlations
+#     - sex length and diameter highest correlation, no death
+# 1. Box plots
+#     - comparative boxplots for the different sex categories
+# 1. Outliers?
+#     - hov?
+#         - if not homogeneous, transform the data
+# 1. fit a model
+#     - rings (or age) ~ (nothing specified)
+# 1. Derived variable --> mature = male + female vs infant
+#     - boxPlot against length and diameter
+# 1. Derived variable --> volume = length*diameter*height
+# 1. Multiple regression: whole ~ shucked + viscera + shell
+# 
+# 
+# # Week 2: Fulfilling the proposal, collaborating with git
+# 
+# You all had several good initial analysis ideas.
+# Unfortunately, your programmer was fired.
+# You have to code it yourself.
+# 
+# Let's break the problem down into the following components:
+# 
+# 1. Data cleaning
+#     - Please removed the 2 outliers from the `height` variable and re-run the `pairs` plot.
+# 1. Variable manipulation
+#     - Create a new variable "mature" based on "sex"
+#         - Male and female are mature, infants are not
+#     - Create a new variable "volume" based on "length", "diameter", and "height"
+
+
+## data loading and cleaning
+```{r}
+library(ggplot2)
+library(ggthemes)
+library(GGally)
+library(caret)
+```
+```{r}
+data <- read.table("abalone(1).data",sep = ",")
+head(data)
+names(data) <- c("sex","length","diameter", "height", "whole", "shucked", "viscera", "shell", "rings")
+head(data)
+#check data structure
+str(data) 
+#change rings variable from integer to numeric
+data$rings <- as.numeric(data$rings) 
+```
+```{r}
+
+# order data by height in ascending order
+data <- data[order(data$height) , ]
+# check for outliers using head and tail functions. get row# which has outliers for height
+head(data)
+tail(data)
+# row 1 and 2 in ordered data has value 0 for height, we will remove those two rows and save data frame as data.1
+data.1<- data[-c(1:2,4176:4177),]
+tail(data.1)
+```
+
+
+##variable manipulation
+#Create a new variable "mature" based on "sex"
+```{r}
+## make new dummy variable 'mature' for sex
+data.1$mature<-as.character(data.1$sex)
+# Create a dummy variable for immature (0) and mature, M and F assigned 1
+data.1$mature <- ifelse(data.1$mature == "I", 0,1)
+data.1$mature <- as.factor(data.1$mature)
+#drop the sex feature (highly related with mature)
+data.2 <- data.1[-c(1)]
+```
+
+##Create a new variable "volume" based on "length", "diameter", and "height"
+```{r}
+## create a new variable volume (formula = area * height * diameter)
+data.1$volume <- data.1$height*data.1$length*data.1$diameter
+#same for data.2
+data.2$volume <- data.2$height*data.2$length*data.2$diameter
+```
+
+##visualization
+#plot metrics by sex
+```{r}
+## visualize attributes by sex
+library(gridExtra)
+# pairs plot to visualize data by sex (3 categories)
+sexplot<-ggpairs(data.1, aes(colour=sex, alpha=0.8), title ="Pairs plot for abalone dataset by sex")+
+  theme_grey(base_size = 8)
+# pairs plot to visualize data by maturity (2 categories)
+matplot<-ggpairs(data.1, aes(colour=as.factor(mature), alpha=0.8), title ="Pairs plot for abalone dataset by maturity")+
+  theme_grey(base_size = 8)
+#create list to put graphs into to then merge into pdf
+plots = list(sexplot,matplot)
+
+#save file
+pdf(file = "plot.pdf")
+plots
+dev.off()
+```
+
+#model fit
+#Model fit: Can we predict shucked, viscera, and shell weight based on whole weight?
+```{r}
+# models to predict shucked, viscera, shell weights from whole weight
+# check how accurately whole weight predicts shucked, viscera, shell weights
+fit.1 <- lm(shucked ~ whole + mature + whole*mature, data=data.2 )
+summary(fit.1)
+fit.2 <- lm(viscera ~ whole*mature, data=data.2)
+summary(fit.2)
+fit.3 <- lm(shell ~ whole*mature, data = data.2)
+summary(fit.3)
+# looks like we can pretty accurately predict shucked, viscera and shell weights from whole weight.
+```
+
+#Model fit: Perform an initial model fit for the data.
+```{r}
+#lm
+model.fit <- lm(rings ~ length + diameter + height + whole + mature , data=data.2)
+summary(model.fit)
+model.fit2 <- lm(rings ~ volume + whole + mature , data=data.2)
+summary(model.fit2)
+model.fit3 <- lm(rings ~ length + diameter + whole + mature , data=data.2)
+summary(model.fit3)
+anova(model.fit,model.fit2)
+
+#try stepwise
+library(tidyverse)
+library(caret)
+library(leaps)
+library(MASS)
+#fit the full model
+full.model <- lm(rings~.,data = data.2)
+#stepwise regression model
+step.model <-stepAIC(full.model,direction = "both", trace = FALSE)
+summary(step.model)
+
+#cross validation
+set.seed(42)
+#set up reapted k-flod cross-validation
+train.control <- trainControl(method = "cv", number = 10)
+#train the model
+step.model.lm <- train(rings~., data = data.2, 
+                    method = "leapBackward",
+                    tuneGrid = data.frame(nvmax = 1:9),
+                    trControl = train.control
+                    )
+#get the results
+step.model.lm$results
+#best tune
+step.model.lm$bestTune
+#9
+#summary
+summary(step.model.lm$finalModel)
+#coefficients
+coef(step.model.lm$finalModel, 9)
+```
+
+#glm fit
+```{r}
+model.fit4 <- glm(rings ~ whole + mature + volume, data = data.2, family = poisson(link = "log"))
+summary(model.fit4)
+#0.64
+model.fit5 <- glm(rings ~ whole + mature + volume, data = data.2, family = gaussian(link = "identity"))
+summary(model.fit5)
+#R^2 0.66
+model.fit6 <- glm(rings ~ whole + mature + height, data = data.2, family = gaussian(link = "identity"))
+summary(model.fit6)
+
+#stepwise for glm
+#fit the full glm model
+full.model.glm <- glm(rings~.,family = gaussian, data = data.2)
+#stepwise regression model
+step.model.glm <- stepAIC(full.model.glm,direction = "both", trace = FALSE)
+summary(step.model.glm)
+```
+
+## Simulation
+
+Please simulate a set of 1250 new observations based on your best model.
+How do these simulated observations compare to the real observations?
+
+F-statistic:   576 on 9 and 4163 DF,  p-value: < 2.2e-16
+
+```{r}
+length <- seq(min(data.2$length),max(data.2$length),length.out = 5)
+diameter <- seq(min(data.2$diameter),max(data.2$diameter),length.out = 5)
+height <- seq(min(data.2$height),max(data.2$height),length.out = 5)
+whole <- seq(min(data.2$whole),max(data.2$whole),length.out = 5)
+mature <- c(0,1)
+
+grid <- expand.grid(length,diameter,height,whole,mature)
+names(grid) <- c("length","diameter","height","whole","mature")
+
+set.seed(90210)
+grid$error <- rnorm(n = 1250,mean = 0,sd = 2.513)
+
+library(tidyverse)
+
+grid_sim <- grid%>%
+  mutate(y=3.4617-11.52*length+18.38*diameter+42*height-0.7*whole-0.91*mature+error)
+
+grid_sim$mature <- as.factor(grid_sim$mature)
+grid_sim$pred <- predict(model.fit,newdata=grid_sim)
+head(grid_sim)
+plot(x = grid_sim$y,y=grid_sim$pred)
+abline(a = 0,b = 1)
+
+grid$error <- rnorm(1250,0,2.513)
+head(grid)
+library(tidyverse)
+
+grid_sim <- grid%>%
+  mutate(y=3.4617-11.52*length+18.38*diameter+42*height-0.7*whole-0.91*mature+error)
+grid_sim$mature <- as.factor(grid_sim$mature)
+grid_sim$pred <- predict(model.fit,newdata=grid_sim)
+head(grid_sim)
+plot(x = grid_sim$y,y=grid_sim$pred)
+abline(a = 0,b = 1)
+```
+
+
