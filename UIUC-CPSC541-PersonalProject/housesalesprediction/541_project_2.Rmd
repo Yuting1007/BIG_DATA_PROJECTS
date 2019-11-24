@@ -1,0 +1,368 @@
+---
+title: "541_project"
+author: "Yuting"
+date: "2019/9/22?"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(caret)
+library(e1071)
+library(ranger)
+
+#the following packages are used to modify the daraframe
+library(dplyr)
+library(tidyr)
+#data visualization packages
+library(corrplot)
+library(PerformanceAnalytics)
+#vif
+library(car)
+#sample.split
+library(caTools)
+#rmse
+library(Metrics)
+#cross validation
+library(DAAG)
+```
+
+```{r}
+#import the data
+data = read.csv("kc_house_data.csv")
+
+#plot the distribution
+hist(data$price)
+```
+
+```{r}
+#not normally distributed
+#need modifiy
+data$price = log1p(data$price)
+
+hist(data$price)
+```
+
+
+```{r}
+#drop the zipcode, ID, date
+data = data[,-c(1,2,17)]
+
+#group the yr_built col into 4 groups
+data$yr_built_group[data$yr_built<=1930]=1
+data$yr_built_group[data$yr_built>=1931 & data$yr_built <= 1960]=2
+data$yr_built_group[data$yr_built>=1961 & data$yr_built <= 1990]=3
+data$yr_built_group[data$yr_built>=1991]=4
+
+#change the yr_renovated into two status (yes = 1; no = 0)
+data$yr_renovated[data$yr_renovated != 0] = 1
+
+```
+```{r}
+#remove the yr_built
+data = data[,-c(13)]
+```
+
+```{r}
+#correlation between the variables
+#correlation heatmap
+corrplot(cor(data))
+```
+
+```{r}
+#correlation
+cor(data)
+# Correlation between price and sqft_living is (0.7)
+# Correlation between price and grade is (0.67)
+# Correlation between price and sqft_above is (0.61)
+# Correlation between price and sqft_living15 is (0.59)
+# Correlation between price and bathrooms is (0.53)
+
+#multicolinearity
+# We would do this later by calculating VIF
+# Correlation between sqft_living and sqft_above is (0.88)
+# Correlation between sqft_living and sqft_living15 is (0.76)
+# Correlation between sqft_living and grade is (0.76)
+# Correlation between sqft living and bathrooms is (0.75)
+```
+
+```{r}
+#remove features weakly lelated to price
+#sqft_lot, yr_built, long, sqft_lot15
+data <- data[,-c(5,15,17,18)]
+```
+
+```{r}
+#multicollinearity
+#use VIF to quantify the severity of multicollinearity
+
+# If the variance inflation factor of a predictor variable is 4 
+# this means that variance for the coefficient of that predictor variable is 4 times
+# as large as it would be if that predictor variable were uncorrelated with the other predictor variables.
+
+# VIFs start at 1 and have no upper limit. 
+# A value of 1 indicates that there is no correlation between this independent variable and any others.
+# VIFs between 1 and 4 suggest that there is a moderate correlation, 
+# but it is not severe enough to warrant corrective measures. 
+# VIFs greater than 4 represent critical 
+# levels of multicollinearity where the coefficients are poorly estimated, 
+# and the p-values are questionable.
+```
+
+```{r}
+# Check VIF for sqft_living and sqft_above. Their correlation was 0.88
+model = lm(formula = price ~ sqft_living + sqft_above,
+               data = data)
+summary(model)
+vif(model)
+```
+```{r}
+#sqft_living 4.318192
+#remove sqft_above
+data$sqft_above = NULL
+```
+
+```{r}
+# Create model with sqft_living and sqft_living15. Their correlation is 0.76
+model = lm(formula = price ~ sqft_living + sqft_living15,
+               data = data)
+summary(model)
+vif(model)
+#VIF 2.337386
+#keep
+```
+
+```{r}
+# Create model with sqft_living and grade. Their correlation is 0.76
+model = lm(formula = price ~ sqft_living + grade,
+               data = data)
+summary(model)
+vif(model)
+#keep
+```
+```{r}
+# Create model with sqft_living and bathrooms. Their correlation is 0.75
+model = lm(formula = price ~ sqft_living + bathrooms,
+               data = data)
+summary(model)
+vif(model)
+#keep
+```
+
+```{r}
+############linear relationship#########
+# Boxplot between price and bedrooms
+boxplot(data[, 1] ~ data[, 2], main = 'Price vs Bedrooms', col=c("blue","red"))
+```
+```{r}
+#remove outilers
+#convert intro factor
+data = data[data$bedrooms <= 10, ]
+
+# Converting bedrooms into factors
+data$bedrooms = as.factor(data$bedrooms)
+```
+
+```{r}
+# Boxplot between price and bathrooms
+boxplot(data[, 1] ~ data[, 3], main = 'Price vs Bathrooms', col=c("blue","red"))
+
+#has a liear relationship
+#keep numeric
+```
+
+```{r}
+# Boxplot between price and sqft_living
+boxplot(data[, 1] ~ data[, 4], main = 'Price vs Sqft_living', col=c("blue","red"))
+#no linear relation
+#keep
+```
+
+```{r}
+# Boxplot between price and floors
+boxplot(data[, 1] ~ data[, 5], main = 'Price vs floors', col=c("blue","red"))
+# Floors are clearly a categorical. 
+# Converting it into factor
+data$floors = as.factor(data$floors)
+```
+
+```{r}
+# Boxplot between price and waterfront
+boxplot(data[, 1] ~ data[, 6], main = 'Price vs waterfront', col=c("blue","red"))
+# Waterfront are clearly a categorical value. 
+# Converting it into factor
+data$waterfront = as.factor(data$waterfront)
+```
+
+```{r}
+# Boxplot between price and view
+boxplot(data[, 1] ~ data[, 7], main = 'Price vs View', col=c("blue","red"))
+# View are clearly a categorical value. 
+# Converting it into factor
+data$view = as.factor(data$view)
+```
+```{r}
+# Boxplot between price and condition
+boxplot(data[, 1] ~ data[, 8], main = 'Price vs Condition', col=c("blue","red"))
+# Condition are clearly a categorical value. 
+# Converting it into factor
+data$condition = as.factor(data$condition)
+```
+```{r}
+# Boxplot between price and grade
+boxplot(data[, 1] ~ data[, 9], main = 'Price vs Grade', col=c("blue","red"))
+#linear relation
+#keep
+```
+```{r}
+# Boxplot between price and sqft_basement
+boxplot(data[, 1] ~ data[, 10], main = 'Price vs Sqft_basement', col=c("blue","red"))
+```
+```{r}
+# It looks like most of the houses do not have basement. Lets check
+# 0 who do not have basement and 1 who have.
+data$sqft_basement[data$sqft_basement != 0] = 1
+# Create factor
+data$sqft_basement = as.factor(data$sqft_basement)
+```
+
+```{r}
+# Boxplot between price and yr_renovated
+boxplot(data[, 1] ~ data[, 11], main = 'Price vs yr_renovated', col=c("blue","red"))
+
+# Create factor
+data$yr_renovated = as.factor(data$yr_renovated)
+```
+```{r}
+# Boxplot between price and sqft_living15
+boxplot(data[, 1] ~ data[, 13], main = 'Price vs sqft_living15', col=c("blue","red"))
+
+#linear relationship exists
+```
+```{r}
+#numeric data scalng or normalizing
+#except price
+#find this code online
+numericFeatures = sapply(data[, -1], is.numeric)
+numericFeatures = c(FALSE, numericFeatures) # No need to scale price
+data[numericFeatures] = sapply(data[numericFeatures], scale)
+
+```
+
+```{r}
+# Splitting dataset into training set and test set
+set.seed(123) # Seed initializes the randomness
+sample = sample.split(data, SplitRatio = 0.75) # Returns a vector with T for 70% of data
+trainingSet = subset(data, sample == T)
+testSet = subset(data, sample == F)
+```
+
+```{r}
+##############fit model###############
+fit_int <- lm(price~1, data=trainingSet)
+fit_full <- lm(price~., data=trainingSet)
+best.model <- step(fit_int,scope = list(upper = formula(fit_full), lower = formula(fit_int)), direction = 'both')
+```
+```{r}
+summary(best.model)
+```
+```{r}
+#condition and bedrooms are not significant
+#omit
+data.1 <- data[,-c(2,8)]
+
+```
+
+```{r}
+set.seed(123) # Seed initializes the randomness
+sample = sample.split(data.1, SplitRatio = 0.75) # Returns a vector with T for 70% of data
+trainingSet.1 = subset(data.1, sample == T)
+testSet.1 = subset(data.1, sample == F)
+```
+
+```{r}
+fit_int <- lm(price~1, data=trainingSet.1)
+fit_full <- lm(price~., data=trainingSet.1)
+best.model.1 <- step(fit_int,scope = list(upper = formula(fit_full), lower = formula(fit_int)), direction = 'both')
+
+summary(best.model.1)
+#R^2 0.7442
+```
+```{r}
+#check the distribution of residuals
+hist(best.model.1$residuals)
+#normally distributed
+```
+
+```{r}
+#################prediction visualization##############
+y_pred = predict(best.model.1, newdata = trainingSet.1)
+
+# Visualizing the training set results
+ggplot() +
+  geom_point(aes(x = trainingSet.1$sqft_living, y = trainingSet.1$price),
+             colour = 'red') +
+  geom_line(aes(x = trainingSet.1$sqft_living, y = y_pred),
+            colour = 'blue') +
+  ggtitle('Sqft_living vs Price (Training set)') +
+  xlab('Sqft_living') +
+  ylab('Price')
+```
+```{r}
+# Visualizing the test set results
+ggplot() +
+  geom_point(aes(x = testSet.1$sqft_living, y = testSet.1$price),
+             colour = 'red') +
+  geom_line(aes(x = trainingSet.1$sqft_living, y = y_pred),
+            colour = 'blue') +
+  ggtitle('Sqft_living vs Price (Test set)') +
+  xlab('Sqft_living') +
+  ylab('Price')
+```
+```{r}
+# Checking accuracy on test set
+pricePrediction = predict(best.model.1, newdata = testSet.1)
+modelOutput <- cbind(testSet.1, pricePrediction)#with prediction
+
+#Test with RMSE
+rmse(modelOutput$price, modelOutput$pricePrediction)
+
+#0.2669825
+```
+```{r}
+#cross validation
+set.seed(42)
+#set up repeated k-fold cross validation
+train.control <- trainControl(method = "cv", number = 10)
+#train the model
+step.model <- train(price~., data = trainingSet.1,
+                    method = "leapBackward",
+                    tuneGrid = data.frame(nvmax= 1:10),
+                    trControl = train.control)
+#get the results
+step.model$results
+#best tune
+step.model$bestTune
+#summary
+summary(step.model$finalModel)
+```
+```{r}
+#visualization
+cvResults <- suppressWarnings(CVlm(data = trainingSet.1, 
+                                   form.lm= price ~., 
+                                   m = 10,  
+                                   seed=42, 
+                                   legend.pos="topleft",
+                                   printit=FALSE, 
+                                   main="10-fold cross validation."))
+```
+
+
+
