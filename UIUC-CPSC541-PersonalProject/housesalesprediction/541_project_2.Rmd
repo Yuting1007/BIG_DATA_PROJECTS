@@ -364,5 +364,57 @@ cvResults <- suppressWarnings(CVlm(data = trainingSet.1,
                                    main="10-fold cross validation."))
 ```
 
+```{r}
+#random forest
+#bagging
+library(tree)
+library(randomForest)
 
+set.seed(42)
+
+# Bagging
+#I first try this code, but it seems like the sample is too large
+#get a small sample size to show the basic walkthrough
+trainme <- data %>%
+  sample_n(1000)
+
+#train1 <- createDataPartition(trainme$price, p = 0.8, list = F)
+
+
+
+model_price <- randomForest(price ~ ., data = trainme, mtry=10)
+
+df <- data.frame(trees=seq(1, 500, 1),
+                 bag_err = model_price$mse)
+
+plot=ggplot(df,aes(x=trees))
+plot=plot+geom_point(aes(y=bag_err),color="magenta", size= 0.5)
+plot
+#about 50 tress
+```
+
+```{r}
+#check the varibale importance
+varImpPlot(model_price)
+#the top important variables are lat, grade and sqft_living, sqft_living15, bathroom
+```
+```{r}
+#random forest
+set.seed(42)
+model2_price <- randomForest(price ~ ., data = trainme)
+
+df2 <- data.frame(trees=seq(1, 500, 1),
+                 bag_err = model_price$mse,
+                 rf_err = model2_price$mse)
+plot=ggplot(df2,aes(x=trees))
+plot=plot+geom_point(aes(y=bag_err),color="magenta", size= 0.5)
+plot=plot+geom_point(aes(y=rf_err),color="chartreuse", size= 0.5)
+plot
+```
+```{r}
+#variable importance
+varImpPlot(model2_price)
+#the top importance variables are lat, sqft_living, grade, sqft_living15, bathrooms
+#similar results as bagging
+```
 
